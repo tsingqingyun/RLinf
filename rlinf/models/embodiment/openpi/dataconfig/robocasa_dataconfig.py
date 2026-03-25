@@ -35,6 +35,23 @@ class LeRobotRobocasaDataConfig(DataConfigFactory):
     image_space: Union[str, Dict] = "2views"
     extra_delta_transform: bool = False  # TODO
 
+    # NOTE:
+    # The upstream OpenPI `DataConfigFactory.create_base_config()` may enable
+    # quantile normalization for PI05/PI0_FAST by default (i.e. it sets
+    # `use_quantile_norm=True` unless the model is PI0).
+    #
+    # RLinf's converted RoboCasa assets (and the copied `norm_stats.json`) only
+    # contain mean/std and do not provide `q01/q99`, which makes OpenPI's
+    # Normalize transform crash with:
+    # "quantile stats must be provided if use_quantile_norm is True".
+    #
+    # To keep the RoboCasa pipeline working with mean/std norm stats, we
+    # force quantile normalization off for this dataset config.
+    @override
+    def create_base_config(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        data_cfg = super().create_base_config(assets_dirs, model_config)
+        return dataclasses.replace(data_cfg, use_quantile_norm=False)
+
     @override
     def create(
         self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig

@@ -246,6 +246,23 @@ _CONFIGS = [
         num_train_steps=100_000,
     ),
     TrainConfig(
+        name="pi05_robocasa_human",
+        model=pi0_config.Pi0Config(
+            pi05=True, action_horizon=5, discrete_state_input=False
+        ),
+        data=LeRobotRobocasaDataConfig(
+            repo_id="daixianjie/robocasa_human_lerobot",
+            base_config=DataConfig(prompt_from_task=True),
+            assets=AssetsConfig(asset_id="physical-intelligence/robocasa_all_human"),
+            extra_delta_transform=False,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "checkpoints/jax/pi05_base/params"
+        ),
+        pytorch_weight_path="checkpoints/torch/pi05_base",
+        num_train_steps=100_000,
+    ),
+    TrainConfig(
         name="pi0_aloha_robotwin",
         model=pi0_config.Pi0Config(discrete_state_input=False),
         data=LeRobotAlohaDataConfig(
