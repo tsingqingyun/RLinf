@@ -27,7 +27,7 @@ from rlinf.data.embodied_io_struct import (
     RolloutResult,
     Trajectory,
 )
-from rlinf.envs import get_env_cls
+from rlinf.envs import SupportedEnvType, get_env_cls
 from rlinf.envs.action_utils import prepare_actions
 from rlinf.envs.wrappers import RecordVideo
 from rlinf.scheduler import Channel, Cluster, Worker
@@ -79,6 +79,22 @@ class EnvWorker(Worker):
             // self.cfg.actor.model.num_action_chunks
         )
         self.actor_split_num = self.get_actor_split_num()
+
+    def _get_action_dim_for_prepare_actions(self, env_type: str) -> int:
+        """Infer the action dimension used for env-specific action conversion.
+
+        For `robocasa`, the OpenPI model may output a larger action dim (e.g. pi0.5: 32),
+        while the robocasa environment expects a smaller action space (e.g. 12).
+        """
+        if SupportedEnvType(env_type) == SupportedEnvType.ROBOCASA:
+            openpi_cfg = self.cfg.actor.model.get("openpi", None)
+            if openpi_cfg is not None and openpi_cfg.get("action_env_dim", None) is not None:
+                return int(openpi_cfg.action_env_dim)
+            # Fallback for other model layouts that may expose `action_env_dim` directly.
+            if self.cfg.actor.model.get("action_env_dim", None) is not None:
+                return int(self.cfg.actor.model.action_env_dim)
+
+        return int(self.cfg.actor.model.action_dim)
 
     def init_worker(self):
         self.dst_ranks = {
@@ -265,7 +281,9 @@ class EnvWorker(Worker):
             env_type=self.cfg.env.train.env_type,
             model_type=self.cfg.actor.model.model_type,
             num_action_chunks=self.cfg.actor.model.num_action_chunks,
-            action_dim=self.cfg.actor.model.action_dim,
+            action_dim=self._get_action_dim_for_prepare_actions(
+                self.cfg.env.train.env_type
+            ),
             policy=self.cfg.actor.model.get("policy_setup", None),
             wm_env_type=self.cfg.env.train.get("wm_env_type", None),
         )
@@ -330,7 +348,9 @@ class EnvWorker(Worker):
             env_type=self.cfg.env.eval.env_type,
             model_type=self.cfg.actor.model.model_type,
             num_action_chunks=self.cfg.actor.model.num_action_chunks,
-            action_dim=self.cfg.actor.model.action_dim,
+            action_dim=self._get_action_dim_for_prepare_actions(
+                self.cfg.env.eval.env_type
+            ),
             policy=self.cfg.actor.model.get("policy_setup", None),
             wm_env_type=self.cfg.env.eval.get("wm_env_type", None),
         )
