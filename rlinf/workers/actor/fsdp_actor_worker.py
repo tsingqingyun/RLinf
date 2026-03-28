@@ -1420,7 +1420,9 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
                         "loss_type": self.cfg.algorithm.loss_type,
                         "logprob_type": self.cfg.algorithm.logprob_type,
                         "reward_type": self.cfg.algorithm.reward_type,
-                        "single_action_dim": self.cfg.actor.model.get("action_dim", 7),
+                        "single_action_dim": self.cfg.actor.model.get("openpi", {}).get(
+                            "action_env_dim", self.cfg.actor.model.get("action_dim", 7)
+                        ),
                         "logprobs": output_dict["logprobs"],
                         "values": output_dict.get("values", None),
                         "old_logprobs": prev_logprobs,

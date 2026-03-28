@@ -247,6 +247,13 @@ def prepare_actions(
             action_dim=action_dim,
             action_space=policy,
         )
+    elif env_type == SupportedEnvType.ROBOCASA365:
+        # Reuse robocasa action preparation; update if action space differs
+        chunk_actions = prepare_actions_for_robocasa(
+            raw_chunk_actions=raw_chunk_actions,
+            action_dim=action_dim,
+            action_space=policy,
+        )
     elif env_type == SupportedEnvType.REALWORLD:
         chunk_actions = raw_chunk_actions
     elif env_type == SupportedEnvType.FRANKASIM:

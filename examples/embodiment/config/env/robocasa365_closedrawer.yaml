@@ -1,0 +1,49 @@
+# RoboCasa-365 environment config for CloseDrawer task.
+# Inherits structure from robocasa_closedrawer.yaml; only differences are noted.
+
+env_type: robocasa365   # ← only change from robocasa
+
+# Robot configuration (same as v0.2)
+robot_name: PandaOmron
+
+# Task names — use robocasa365-registered task names.
+# Run probe_robocasa365.py to confirm the exact registered name.
+task_names:
+  - CloseDrawer
+  # Add more tasks from the 365-task set here, e.g.:
+  # - OpenDoor
+  # - PnPCounterToCab
+
+total_num_envs: null
+
+auto_reset: False
+ignore_terminations: False
+max_steps_per_rollout_epoch: 300
+max_episode_steps: 300
+use_fixed_reset_state_ids: False
+use_ordered_reset_state_ids: False
+
+use_rel_reward: True
+use_partial_reward: False   # set True if robocasa365 exposes progress reward
+reward_coef: 1.0
+is_eval: False
+
+seed: 42
+group_size: 1
+
+video_cfg:
+  save_video: False
+  info_on_video: True
+  video_base_dir: ${runner.logger.log_path}/video/train
+
+init_params:
+  camera_heights: 224
+  camera_widths: 224
+  # Optional: fix layout/style for reproducibility
+  # layout_id: 0
+  # style_id: 0
+
+# Spaces — update after running probe_robocasa365.py if dims changed
+action_space: 12d
+state_space: 25d
+image_space: 2views   # change to 3views if new version adds extra camera

@@ -86,7 +86,10 @@ class EnvWorker(Worker):
         For `robocasa`, the OpenPI model may output a larger action dim (e.g. pi0.5: 32),
         while the robocasa environment expects a smaller action space (e.g. 12).
         """
-        if SupportedEnvType(env_type) == SupportedEnvType.ROBOCASA:
+        if SupportedEnvType(env_type) in (
+            SupportedEnvType.ROBOCASA,
+            SupportedEnvType.ROBOCASA365,
+        ):
             openpi_cfg = self.cfg.actor.model.get("openpi", None)
             if openpi_cfg is not None and openpi_cfg.get("action_env_dim", None) is not None:
                 return int(openpi_cfg.action_env_dim)
