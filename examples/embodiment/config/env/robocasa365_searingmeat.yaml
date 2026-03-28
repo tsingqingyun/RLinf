@@ -36,6 +36,12 @@ generative_textures: null
 
 randomize_cameras: false
 
+# SearingMeat 需要 pan（仅 objaverse/aigen 有）和 meat 物体，lightwheel 单独不够
+obj_registries:
+  - objaverse
+  - aigen
+  - lightwheel
+
 video_cfg:
   save_video: False
   info_on_video: True
