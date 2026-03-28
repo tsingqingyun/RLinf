@@ -1,0 +1,50 @@
+# RoboCasa v1.0.0 — composite task SearingMeat (Frying).
+# 官方 dataset_registry 中 horizon=2900；若仅做 smoke test 可暂时改小 max_episode_steps。
+
+env_type: robocasa365
+
+robot_name: PandaOmron
+
+task_names:
+  - SearingMeat
+
+total_num_envs: null
+
+auto_reset: False
+ignore_terminations: False
+# 与 robocasa 数据集 SearingMeat 的 horizon 对齐（见 robocasa/utils/dataset_registry.py）
+max_steps_per_rollout_epoch: 2900
+max_episode_steps: 2900
+use_fixed_reset_state_ids: False
+use_ordered_reset_state_ids: False
+
+use_rel_reward: True
+reward_coef: 1.0
+is_eval: False
+
+seed: 42
+group_size: 1
+
+split: null
+
+layout_ids: null
+style_ids: null
+
+obj_instance_split: null
+
+generative_textures: null
+
+randomize_cameras: false
+
+video_cfg:
+  save_video: False
+  info_on_video: True
+  video_base_dir: ${runner.logger.log_path}/video/train
+
+init_params:
+  camera_heights: 256
+  camera_widths: 256
+
+action_space: 12d
+state_space: 25d
+image_space: 3views

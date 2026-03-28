@@ -1,70 +1,76 @@
 """
-RoboCasa-365 environment adapter for RLinf.
+RoboCasa v1.0.0 ("365") environment adapter for RLinf.
 
-Inherits from RobocasaEnv and overrides only the parts that differ
-in the robocasa365 version:
-  - Package import (robocasa365 vs robocasa)
-  - Observation extraction (if obs keys / state dims differ)
-  - Action space (if dims differ)
-  - Reward (if multi-stage / progress reward is available)
-
-Before modifying, run the probe script to confirm actual obs keys:
-  python /tmp/probe_robocasa365.py <TaskName>
+Key API changes vs robocasa v0.2.0:
+  - Use create_env() from robocasa.utils.env_utils instead of robosuite.make() directly
+  - New split / layout_ids / style_ids / obj_instance_split params for domain randomization
+  - Default camera resolution: 256x256, 3 views
+  - Raw obs keys (robot0_eef_pos, etc.) are unchanged → venv.py / _check_success unchanged
+  - Requires: mujoco==3.3.1, numpy==2.2.5, robosuite>=1.5.2
 """
+
+import sys
 
 import numpy as np
 
 from rlinf.envs.robocasa.robocasa_env import RobocasaEnv
+from rlinf.envs.robocasa365.venv365 import Robocasa365SubprocEnv
 from rlinf.envs.robocasa365.utils import (
+    IMAGE_SPACE_STR_MAPPING_365,
     OBS_KEY_CAMERA_NAME_MAPPING_365,
     OBS_KEY_ROBOCASA365_IMAGE_MAPPING,
-    ROBOCASA365_ALL_ACTION_DIM,
-    ROBOCASA365_STATES,
     STATE_DIM_365,
     get_image_space_365,
 )
-from rlinf.envs.utils import to_tensor, list_of_dict_to_dict_of_list
+from rlinf.envs.utils import list_of_dict_to_dict_of_list, to_tensor
 
 
 class Robocasa365Env(RobocasaEnv):
     """
-    RoboCasa-365 environment.
+    RoboCasa v1.0.0 environment for RLinf.
 
-    Key differences from RobocasaEnv (fill in after running probe script):
-      - Package name: robocasa365 (or same robocasa with updated version)
-      - State dim: STATE_DIM_365 (update utils.py after probing)
-      - Camera names: may include a third view
-      - Reward: supports partial/progress reward if available
+    New config keys (set in yaml under env.train / env.eval):
+      split: null | "all" | "pretrain" | "target"
+          Controls which layout/style/object splits are used.
+          null  → free random (default, same as old behavior)
+          "all" → all layouts and styles
+          "pretrain" / "target" → for train/eval split generalisation
+
+      layout_ids: null | int | list[int]
+          Fix specific layout IDs (overridden by split if split != null)
+
+      style_ids: null | int | list[int]
+          Fix specific style IDs (overridden by split if split != null)
+
+      obj_instance_split: null | "pretrain" | "target"
+          Object instance-level generalisation split
+
+      generative_textures: null | float
+          Probability of using generative (random) textures (0.0-1.0)
+
+      randomize_cameras: false
+          Whether to randomly jitter camera poses each episode
+
+      camera_heights: 256   (new default in v1.0.0; was 224)
+      camera_widths:  256
+      image_space: "3views" (new default; was 2views — adds agentview_right)
     """
 
     # -----------------------------------------------------------------------
-    # 1. Package import — override if new version uses a different package name
+    # 1. Import new robocasa from /root/robocasa
     # -----------------------------------------------------------------------
-    def _init_env(self):
-        """Initialize robocasa365 environments using subprocess isolation."""
-        # ↓ Change import name if the new package is called robocasa365
-        try:
-            import robocasa365  # noqa: F401
-        except ImportError:
-            import robocasa  # noqa: F401  fall back to existing install
+    ROBOCASA365_PATH = "/root/robocasa"
 
-        from rlinf.envs.robocasa.venv import RobocasaSubprocEnv
-
-        self.task_ids = []
-        for env_id in range(self.num_envs):
-            task_idx = env_id % self.num_tasks
-            self.task_ids.append(task_idx)
-        self.task_ids = np.array(self.task_ids)
-
-        env_fns = self.get_env_fns()
-        self.env = RobocasaSubprocEnv(env_fns)
+    def _ensure_robocasa365_on_path(self):
+        """Add robocasa v1.0.0 to sys.path so its package takes priority."""
+        if self.ROBOCASA365_PATH not in sys.path:
+            sys.path.insert(0, self.ROBOCASA365_PATH)
 
     # -----------------------------------------------------------------------
-    # 2. Camera names — update if new version exposes different camera keys
+    # 2. Camera names — new default adds agentview_right
     # -----------------------------------------------------------------------
     @property
     def camera_names(self):
-        """Camera names for robocasa365 (may differ from v0.2)."""
         image_space = get_image_space_365(self.cfg.image_space)
         return [
             OBS_KEY_CAMERA_NAME_MAPPING_365[obs_key]
@@ -73,66 +79,90 @@ class Robocasa365Env(RobocasaEnv):
         ]
 
     # -----------------------------------------------------------------------
-    # 3. get_env_fns — add any extra robosuite.make() kwargs for new version
+    # 3. _init_env — ensure robocasa365 is importable, then build subprocess envs
+    # -----------------------------------------------------------------------
+    def _init_env(self):
+        self._ensure_robocasa365_on_path()
+        import robocasa  # noqa: F401 — registers all envs in robosuite
+
+        self.task_ids = []
+        for env_id in range(self.num_envs):
+            self.task_ids.append(env_id % self.num_tasks)
+        self.task_ids = np.array(self.task_ids)
+
+        env_fns = self.get_env_fns()
+        self.env = Robocasa365SubprocEnv(env_fns)
+
+    # -----------------------------------------------------------------------
+    # 4. get_env_fns — use create_env() with new v1.0.0 parameters
     # -----------------------------------------------------------------------
     def get_env_fns(self):
-        """Create env factory functions; adds new-version-specific kwargs."""
         env_fns = []
 
+        # Read new v1.0.0 params from config (all optional, default to None/False)
+        split            = self.cfg.get("split", None)
+        layout_ids       = self.cfg.get("layout_ids", None)
+        style_ids        = self.cfg.get("style_ids", None)
+        obj_instance_split  = self.cfg.get("obj_instance_split", None)
+        generative_textures = self.cfg.get("generative_textures", None)
+        randomize_cameras   = self.cfg.get("randomize_cameras", False)
+
         for env_id in range(self.num_envs):
-            task_idx = self.task_ids[env_id]
-            task_name = self.task_names[task_idx]
-            env_seed = self.env_seeds[env_id]
-
-            camera_widths = self.cfg.init_params.camera_widths
-            camera_heights = self.cfg.init_params.camera_heights
+            task_name  = self.task_names[self.task_ids[env_id]]
+            env_seed   = int(self.env_seeds[env_id])
+            cam_h      = self.cfg.init_params.camera_heights
+            cam_w      = self.cfg.init_params.camera_widths
             robot_name = self.cfg.robot_name
+            cameras    = self.camera_names
 
-            # Optional: layout/style control if robocasa365 supports it
-            layout_id = self.cfg.get("layout_id", None)
-            style_id = self.cfg.get("style_id", None)
+            obj_registries = tuple(
+                getattr(self.cfg, "obj_registries", None) or ("lightwheel",)
+            )
 
             def env_fn(
                 task=task_name,
                 seed=env_seed,
-                width=camera_widths,
-                height=camera_heights,
+                width=cam_w,
+                height=cam_h,
                 robot=robot_name,
-                layout_id=layout_id,
-                style_id=style_id,
+                _cameras=cameras,
+                _split=split,
+                _layout_ids=layout_ids,
+                _style_ids=style_ids,
+                _obj_instance_split=obj_instance_split,
+                _generative_textures=generative_textures,
+                _randomize_cameras=randomize_cameras,
+                _obj_registries=obj_registries,
             ):
-                import robosuite
-                from robosuite.controllers import load_composite_controller_config
+                # Ensure robocasa365 is on path inside the subprocess too
+                import sys as _sys
+                _rc365_path = Robocasa365Env.ROBOCASA365_PATH
+                if _rc365_path not in _sys.path:
+                    _sys.path.insert(0, _rc365_path)
 
-                controller_config = load_composite_controller_config(
-                    controller=None, robot=robot
-                )
+                import robocasa  # noqa: F401
+                from robocasa.utils.env_utils import create_env
 
-                make_kwargs = dict(
+                env = create_env(
                     env_name=task,
                     robots=robot,
-                    controller_configs=controller_config,
-                    camera_names=self.camera_names,
+                    camera_names=_cameras,
                     camera_widths=width,
                     camera_heights=height,
-                    has_renderer=False,
-                    has_offscreen_renderer=True,
-                    ignore_done=True,
-                    use_object_obs=True,
-                    use_camera_obs=True,
-                    camera_depths=False,
                     seed=seed,
+                    render_onscreen=False,
                     translucent_robot=False,
-                    render_camera="robot0_agentview_center",
+                    # v1.0.0 new params ↓
+                    split=_split,
+                    layout_ids=_layout_ids,
+                    style_ids=_style_ids,
+                    obj_instance_split=_obj_instance_split,
+                    generative_textures=_generative_textures,
+                    randomize_cameras=_randomize_cameras,
+                    # objaverse assets shipped with repo lack reg_bbox geom;
+                    # restrict to lightwheel until assets are re-downloaded
+                    obj_registries=_obj_registries,
                 )
-
-                # ↓ Add robocasa365-specific kwargs only if provided
-                if layout_id is not None:
-                    make_kwargs["layout_id"] = layout_id
-                if style_id is not None:
-                    make_kwargs["style_id"] = style_id
-
-                env = robosuite.make(**make_kwargs)
                 return env
 
             env_fns.append(env_fn)
@@ -140,68 +170,46 @@ class Robocasa365Env(RobocasaEnv):
         return env_fns
 
     # -----------------------------------------------------------------------
-    # 4. _extract_image_and_state — the most critical adaptation point
-    #    Update field slices after running probe_robocasa365.py
+    # 5. _extract_image_and_state
+    #    Raw obs keys from robosuite are unchanged in v1.0.0 — state format same.
+    #    Only image mapping differs if image_space = "3views".
     # -----------------------------------------------------------------------
     def _extract_image_and_state(self, obs):
-        """
-        Extract images and states matching robocasa365's obs format.
-
-        Update STATE_DIM_365 and field slices in utils.py after probing.
-        Current assumption: same 25D layout as v0.2 — change if needed.
-        """
         images_by_key = {k: [] for k in OBS_KEY_ROBOCASA365_IMAGE_MAPPING}
         states = []
 
         for env_id in range(len(obs)):
             env_obs = obs[env_id]
 
-            # --- Images (flip vertically: OpenGL coords are upside-down) ---
-            for img_key in OBS_KEY_ROBOCASA365_IMAGE_MAPPING:
-                raw_name = OBS_KEY_ROBOCASA365_IMAGE_MAPPING[img_key]
+            # --- Images (OpenGL coords: flip vertically) ---
+            for img_key, raw_name in OBS_KEY_ROBOCASA365_IMAGE_MAPPING.items():
                 img = env_obs.get(raw_name)
                 if img is not None:
                     img = img[::-1].copy()
                 images_by_key[img_key].append(img)
 
-            # --- State vector ---
-            # ↓ Modify slices here if robocasa365 has different state layout.
-            # Run probe_robocasa365.py first to confirm.
+            # --- State vector (same 25D layout as v0.2.0) ---
             state = np.zeros(STATE_DIM_365, dtype=np.float32)
-            ptr = 0
-
-            def fill(field, dim):
-                nonlocal ptr
-                val = env_obs.get(field)
-                if val is not None:
-                    state[ptr : ptr + dim] = val[:dim]
-                ptr += dim
-
-            fill("robot0_eef_pos", 3)         # [0:3]
-            fill("robot0_eef_quat", 4)        # [3:7]
-            fill("robot0_gripper_qpos", 2)    # [7:9]
-            fill("robot0_gripper_qvel", 2)    # [9:11]
-            fill("robot0_base_to_eef_pos", 3) # [11:14]
-            fill("robot0_base_to_eef_quat", 4)# [14:18]
-            fill("robot0_base_pos", 3)        # [18:21]
-            fill("robot0_base_quat", 4)       # [21:25]
-            # ↓ If robocasa365 adds joint positions, uncomment:
-            # fill("robot0_joint_pos", 7)     # [25:32]
-
+            state[0:3]   = env_obs["robot0_eef_pos"]
+            state[3:7]   = env_obs["robot0_eef_quat"]
+            state[7:9]   = env_obs["robot0_gripper_qpos"]
+            state[9:11]  = env_obs["robot0_gripper_qvel"]
+            state[11:14] = env_obs["robot0_base_to_eef_pos"]
+            state[14:18] = env_obs["robot0_base_to_eef_quat"]
+            state[18:21] = env_obs["robot0_base_pos"]
+            state[21:25] = env_obs["robot0_base_quat"]
             states.append(state)
 
         result = {"state": np.array(states)}
         for img_key in OBS_KEY_ROBOCASA365_IMAGE_MAPPING:
             result[img_key] = np.array(images_by_key[img_key])
-
         return result
 
     # -----------------------------------------------------------------------
-    # 5. _wrap_obs — rebuild obs dict with new image key names
+    # 6. _wrap_obs — rebuild obs dict supporting 2views or 3views
     # -----------------------------------------------------------------------
     def _wrap_obs(self, obs_list, info_list):
         import torch
-        from rlinf.envs.utils import list_of_dict_to_dict_of_list
 
         extracted_obs = self._extract_image_and_state(obs_list)
         task_description_list = self._extract_task_description(info_list)
@@ -224,92 +232,10 @@ class Robocasa365Env(RobocasaEnv):
 
         for obs_key_name in OBS_KEY_ROBOCASA365_IMAGE_MAPPING:
             imgs = images_and_states_tensor[obs_key_name]
-            if isinstance(imgs, list) and imgs[0] is None:
+            if isinstance(imgs, list) and any(v is None for v in imgs):
                 obs[obs_key_name] = None
+            elif isinstance(imgs, list):
+                obs[obs_key_name] = torch.stack([v.clone() for v in imgs])
             else:
-                obs[obs_key_name] = torch.stack(
-                    [v.clone() for v in imgs]
-                ) if isinstance(imgs, list) else imgs
+                obs[obs_key_name] = imgs
         return obs
-
-    # -----------------------------------------------------------------------
-    # 6. _calc_step_reward — extend for progress/partial reward if available
-    # -----------------------------------------------------------------------
-    def _calc_step_reward(self, terminations, infos=None):
-        """
-        Reward computation for robocasa365.
-
-        If the new version provides partial/progress rewards through
-        info["partial_reward"], use them; otherwise fall back to binary.
-
-        To use partial reward:
-          1. Add partial_reward extraction in venv.py _worker()
-          2. Set use_partial_reward: True in yaml
-        """
-        use_partial = getattr(self.cfg, "use_partial_reward", False)
-
-        if use_partial and infos is not None:
-            # infos here is a list of per-env info dicts
-            partial = np.array(
-                [info.get("partial_reward", float(t)) for info, t in
-                 zip(infos, terminations)],
-                dtype=np.float32,
-            )
-            reward = self.cfg.reward_coef * partial
-        else:
-            reward = self.cfg.reward_coef * terminations.astype(np.float32)
-
-        if self.use_rel_reward:
-            reward_diff = reward - self.prev_step_reward
-            self.prev_step_reward = reward
-            return reward_diff
-        return reward
-
-    # Override step to pass infos into reward calc
-    def step(self, actions=None, auto_reset=True):
-        if actions is None:
-            assert self._is_start
-        if self.is_start:
-            obs, infos = self.reset()
-            import torch
-            zeros = np.zeros(self.num_envs, dtype=np.float32)
-            return (
-                obs,
-                to_tensor(zeros),
-                to_tensor(zeros.astype(bool)),
-                to_tensor(zeros.astype(bool)),
-                infos,
-            )
-
-        if hasattr(actions, "detach"):
-            actions = actions.detach().cpu().numpy()
-
-        self._elapsed_steps += 1
-        raw_obs, rewards, dones, info_lists = self.env.step(actions)
-        infos = list_of_dict_to_dict_of_list(info_lists)
-
-        terminations = np.array(
-            [info.get("success", False) for info in info_lists]
-        ).astype(bool)
-        truncations = self._elapsed_steps >= self.cfg.max_episode_steps
-        obs = self._wrap_obs(raw_obs, info_lists)
-
-        # Pass raw info_lists for partial reward support
-        step_reward = self._calc_step_reward(terminations, infos=info_lists)
-
-        infos = self._record_metrics(step_reward, terminations, infos)
-        if self.ignore_terminations:
-            infos["episode"]["success_at_end"] = to_tensor(terminations)
-            terminations[:] = False
-
-        dones = terminations | truncations
-        if dones.any() and auto_reset and self.auto_reset:
-            obs, infos = self._handle_auto_reset(dones, obs, infos)
-
-        return (
-            obs,
-            to_tensor(step_reward),
-            to_tensor(terminations),
-            to_tensor(truncations),
-            infos,
-        )
