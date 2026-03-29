@@ -1,3 +1,5 @@
+# GRPO（Group Relative Policy Optimization）：advantage 在组内相对归一化，loss 为 actor-only（无 value loss）
+# 要求 algorithm.group_size > 1，且 env 并行数需满足 validate_embodied_cfg 的整除约束
 defaults:
   - env/robocasa365_searingmeat@env.train
   - env/robocasa365_searingmeat@env.eval
@@ -22,7 +24,7 @@ runner:
   logger:
     log_path: "../results"
     project_name: rlinf
-    experiment_name: "robocasa365_searingmeat_ppo_openpi_pi05"
+    experiment_name: "robocasa365_searingmeat_grpo_openpi_pi05"
     logger_backends: ["wandb"]
 
   max_epochs: 1000
@@ -38,27 +40,23 @@ runner:
 algorithm:
   normalize_advantages: True
   kl_penalty: kl
-  group_size: 1
+  group_size: 8
   reward_coef: 1.0
 
-  # 长 horizon（2900）时减小 rollout_epoch / update_epoch 可明显降显存峰值
   rollout_epoch: 2
   eval_rollout_epoch: 1
   reward_type: chunk_level
   logprob_type: chunk_level
   entropy_type: token_level
 
-  # P1：每批 rollout 只过 1 遍，减轻对稀疏奖励数据的过拟合
   update_epoch: 1
-  adv_type: gae
-  loss_type: actor_critic
+  adv_type: grpo
+  loss_type: actor
   loss_agg_func: "token-mean"
-  # P0：锚定预训练策略，缓解长 horizon 下的策略崩溃
-  kl_beta: 0.02
+  kl_beta: 0.0
   entropy_bonus: 0
-  # P1：收紧 trust region
-  clip_ratio_high: 0.1
-  clip_ratio_low: 0.1
+  clip_ratio_high: 0.2
+  clip_ratio_low: 0.2
   clip_ratio_c: 3.0
   value_clip: 0.2
   huber_delta: 10.0
@@ -66,7 +64,7 @@ algorithm:
   gamma: 0.99
   gae_lambda: 0.95
 
-  filter_rewards: False
+  filter_rewards: True
   rewards_lower_bound: 0.1
   rewards_upper_bound: 0.9
 
@@ -89,7 +87,7 @@ env:
   enable_offload: False
 
   train:
-    total_num_envs: 4
+    total_num_envs: 8
     max_episode_steps: 2900
     max_steps_per_rollout_epoch: 2900
     group_size: ${algorithm.group_size}
@@ -120,7 +118,6 @@ rollout:
   generation_backend: "huggingface"
   recompute_logprobs: False
   unnorm_key: robocasa
-  # Rollout 模型不训练，空闲时卸到 CPU → 给 Actor 腾出 GPU 显存
   enable_offload: True
   pipeline_stage_num: 1
 
@@ -131,12 +128,9 @@ rollout:
 actor:
   group_name: "ActorGroup"
   training_backend: "fsdp"
-  # rollout_size = (2900 // 5) × 1 × 2 = 1160
-  # batch_size_per_rank = 80 // 2 = 40，1160 % 40 == 0 ✓；80 % (8×2) == 0 ✓
   micro_batch_size: 8
   global_batch_size: 80
   seed: 42
-  # Actor 模型要训练，常驻 GPU；不要卸到 CPU（否则 CPU RAM 暴增）
   enable_offload: False
 
   model:
@@ -145,39 +139,36 @@ actor:
     num_action_chunks: 5
     num_steps: 5
     action_dim: 32
-    add_value_head: True
+    add_value_head: False
     openpi:
-      # RLinf 仅注册 pi05_robocasa_human；权重由 model_path 加载（mixed 微调 checkpoint）
       config_name: "pi05_robocasa_human"
       action_env_dim: 12
       num_images_in_input: 3
       detach_critic_input: True
       joint_logprob: False
-      value_after_vlm: True
+      value_after_vlm: False
 
     openpi_data:
-        action_space: ${env.train.action_space}
-        state_space: ${env.train.state_space}
-        image_space: ${env.train.image_space}
+      action_space: ${env.train.action_space}
+      state_space: ${env.train.state_space}
+      image_space: ${env.train.image_space}
 
     policy_setup: ${env.train.action_space}
 
   optim:
-    # P0：预训练微调用更小 lr，减缓遗忘
-    lr: 1.0e-6
+    lr: 5.0e-6
     value_lr: 1.0e-4
     adam_beta1: 0.9
     adam_beta2: 0.95
     adam_eps: 1.0e-8
-    # P1：抑制梯度尖峰
-    clip_grad: 0.5
+    clip_grad: 1.0
     weight_decay: 0.01
     critic_warmup_steps: 0
 
   fsdp_config:
     strategy: "fsdp"
     sharding_strategy: "no_shard"
-    gradient_checkpointing: True
+    gradient_checkpointing: False
     mixed_precision:
       param_dtype: ${actor.model.precision}
       reduce_dtype: ${actor.model.precision}
