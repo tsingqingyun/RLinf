@@ -119,23 +119,23 @@ install_uv() {
     # Ensure uv is installed
     if ! command -v uv &> /dev/null; then
         echo "uv command not found. Installing uv..."
-        # Check if pip is available
-        if ! command -v pip &> /dev/null; then
-            echo "pip command not found. Please install pip first." >&2
-            exit 1
+        pip_failed=1
+        if command -v pip &> /dev/null; then
+            pip_failed=0
+            pip install uv || pip_failed=1
         fi
-        pip_failed=0
-        pip install uv || pip_failed=1
         if [ $pip_failed -eq 1 ]; then
-            echo "Cannot install uv via pip. Installing uv using installer script..."
-            if ! command -v wget &> /dev/null; then
-                echo "wget command not found. Please install wget first." >&2
+            echo "Installing uv using standalone installer (pip missing or pip install failed)..."
+            if ! command -v curl &> /dev/null && ! command -v wget &> /dev/null; then
+                echo "Neither curl nor wget found. Please install curl or wget." >&2
                 exit 1
             fi
-            
+
             # If uv already exists in ~/.local/bin, use it
             if [ -f ~/.local/bin/uv ]; then
                 echo "uv already exists in ~/.local/bin. Using it..."
+            elif command -v curl &> /dev/null; then
+                curl -LsSf https://astral.sh/uv/install.sh | sh
             else
                 wget -qO- https://astral.sh/uv/install.sh | sh
             fi
@@ -159,7 +159,8 @@ unset_mirror() {
         unset UV_PYTHON_INSTALL_MIRROR
         unset UV_DEFAULT_INDEX
         unset HF_ENDPOINT
-        git config --global --unset url."${GITHUB_PREFIX}github.com/".insteadOf
+        # Do not unset global git url.insteadOf here: users often keep a persistent
+        # GitHub mirror in ~/.gitconfig; removing it breaks clones after install.
     fi
 }
 

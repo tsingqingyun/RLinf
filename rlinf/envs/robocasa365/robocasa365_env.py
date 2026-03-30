@@ -9,6 +9,7 @@ Key API changes vs robocasa v0.2.0:
   - Requires: mujoco==3.3.1, numpy==2.2.5, robosuite>=1.5.2
 """
 
+import inspect
 import sys
 
 import numpy as np
@@ -21,6 +22,7 @@ from rlinf.envs.robocasa365.utils import (
     OBS_KEY_ROBOCASA365_IMAGE_MAPPING,
     STATE_DIM_365,
     get_image_space_365,
+    get_robocasa365_source_path,
 )
 from rlinf.envs.utils import list_of_dict_to_dict_of_list, to_tensor
 
@@ -57,14 +59,14 @@ class Robocasa365Env(RobocasaEnv):
     """
 
     # -----------------------------------------------------------------------
-    # 1. Import new robocasa from /root/robocasa
+    # 1. Import RoboCasa v1.0 from /home/njc/robocasa by default (override: export ROBOCASA365_PATH=...)
     # -----------------------------------------------------------------------
-    ROBOCASA365_PATH = "/root/robocasa"
 
     def _ensure_robocasa365_on_path(self):
         """Add robocasa v1.0.0 to sys.path so its package takes priority."""
-        if self.ROBOCASA365_PATH not in sys.path:
-            sys.path.insert(0, self.ROBOCASA365_PATH)
+        rc = get_robocasa365_source_path()
+        if rc not in sys.path:
+            sys.path.insert(0, rc)
 
     # -----------------------------------------------------------------------
     # 2. Camera names — new default adds agentview_right
@@ -136,14 +138,14 @@ class Robocasa365Env(RobocasaEnv):
             ):
                 # Ensure robocasa365 is on path inside the subprocess too
                 import sys as _sys
-                _rc365_path = Robocasa365Env.ROBOCASA365_PATH
+                _rc365_path = get_robocasa365_source_path()
                 if _rc365_path not in _sys.path:
                     _sys.path.insert(0, _rc365_path)
 
                 import robocasa  # noqa: F401
                 from robocasa.utils.env_utils import create_env
 
-                env = create_env(
+                create_kw = dict(
                     env_name=task,
                     robots=robot,
                     camera_names=_cameras,
@@ -151,7 +153,6 @@ class Robocasa365Env(RobocasaEnv):
                     camera_heights=height,
                     seed=seed,
                     render_onscreen=False,
-                    translucent_robot=False,
                     # v1.0.0 new params ↓
                     split=_split,
                     layout_ids=_layout_ids,
@@ -163,6 +164,19 @@ class Robocasa365Env(RobocasaEnv):
                     # restrict to lightwheel until assets are re-downloaded
                     obj_registries=_obj_registries,
                 )
+                # Older robocasa create_env() does not accept translucent_robot / split / obj_registries (v1.0+ only)
+                sig = inspect.signature(create_env)
+                params = sig.parameters
+                if "translucent_robot" in params:
+                    create_kw["translucent_robot"] = False
+                if any(
+                    p.kind == inspect.Parameter.VAR_KEYWORD
+                    for p in params.values()
+                ):
+                    env = create_env(**create_kw)
+                else:
+                    allowed = {k: v for k, v in create_kw.items() if k in params}
+                    env = create_env(**allowed)
                 return env
 
             env_fns.append(env_fn)

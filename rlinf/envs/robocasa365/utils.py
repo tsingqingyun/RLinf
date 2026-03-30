@@ -9,9 +9,38 @@ vs robocasa v0.2.0:
   - State vector: still 25D, same layout
 """
 
+import os
 from typing import Union
 
 import numpy as np
+
+
+# Default RoboCasa v1.0 checkout path.
+# Override with:
+#   export ROBOCASA365_PATH=/path/to/robocasa
+DEFAULT_ROBOCASA365_PATH = "/home/njc/robocasa"
+
+
+def get_robocasa365_source_path() -> str:
+    """
+    Absolute path to the RoboCasa v1.0 source tree (prepended to ``sys.path``).
+
+    Uses ``ROBOCASA365_PATH`` if set.
+
+    Otherwise, uses ``DEFAULT_ROBOCASA365_PATH`` (default: ``/home/njc/robocasa``)
+    if it exists; if not, falls back to ``~/robocasa``.
+
+    This avoids accidentally importing the optional editable install under
+    RLinf's ``.venv/robocasa``.
+    """
+    p = os.environ.get("ROBOCASA365_PATH", "").strip()
+    if p and os.path.isdir(p):
+        return os.path.abspath(p)
+
+    if os.path.isdir(DEFAULT_ROBOCASA365_PATH):
+        return os.path.abspath(DEFAULT_ROBOCASA365_PATH)
+
+    return os.path.abspath(os.path.expanduser("~/robocasa"))
 
 
 # ---------------------------------------------------------------------------

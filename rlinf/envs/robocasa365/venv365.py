@@ -2,8 +2,10 @@
 Subprocess vectorized environment for robocasa v1.0.0.
 
 Difference from robocasa/venv.py:
-  - Workers patch sys.path to load robocasa v1.0.0 from /root/robocasa
-    BEFORE any other robocasa import, so the new package takes priority.
+  - Workers patch sys.path to load robocasa v1.0.0 from ``/home/njc/robocasa`` by
+    default (override: ``export ROBOCASA365_PATH=...``) BEFORE any other
+    robocasa import, so the new package takes priority over an editable install
+    under RLinf's ``.venv``.
   - If a separate venv is used (ROBOCASA365_PYTHON env var), workers are
     spawned using that Python interpreter via subprocess.Popen instead of
     multiprocessing.Process.
@@ -26,6 +28,7 @@ from typing import Any, Callable, Optional, Union
 
 import numpy as np
 
+from rlinf.envs.robocasa365.utils import get_robocasa365_source_path
 from rlinf.envs.venv import (
     BaseVectorEnv,
     CloudpickleWrapper,
@@ -37,7 +40,7 @@ from rlinf.envs.venv import (
 )
 
 # Path to robocasa v1.0.0 source (inserted at the start of sys.path in workers)
-ROBOCASA365_SRC = "/root/robocasa"
+ROBOCASA365_SRC = get_robocasa365_source_path()
 
 # Optional: path to a separate venv Python that has robocasa365 deps installed
 # Set via: export ROBOCASA365_PYTHON=/root/venvs/robocasa365_venv/bin/python
@@ -53,8 +56,8 @@ def _worker_365(
     """
     Worker function for robocasa v1.0.0 subprocess environment.
 
-    Inserts /root/robocasa at the front of sys.path so the new robocasa
-    package is imported before any older version.
+    Inserts ``ROBOCASA365_SRC`` (default ``/home/njc/robocasa``) at the front of
+    sys.path so the v1.0 package is imported before any older version.
 
     Identical protocol to robocasa/venv.py _worker():
       step  → calls env.step(), env._check_success(), env.get_ep_meta()
@@ -189,8 +192,8 @@ class Robocasa365SubprocEnv(SubprocVectorEnv):
     """
     Subprocess vectorized environment for robocasa v1.0.0.
 
-    Each subprocess worker patches sys.path to import robocasa v1.0.0
-    from /root/robocasa before any other version.
+    Each subprocess worker patches sys.path to import robocasa v1.0.0 from
+    ``/home/njc/robocasa`` by default (or ``ROBOCASA365_PATH``) before any other version.
     """
 
     def __init__(self, env_fns: list[Callable], **kwargs: Any) -> None:

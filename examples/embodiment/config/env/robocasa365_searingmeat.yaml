@@ -1,4 +1,5 @@
 # RoboCasa v1.0.0 — composite task SearingMeat (Frying).
+# RoboCasa v1.0 source: default /home/njc/robocasa; override with export ROBOCASA365_PATH=...
 # 官方 dataset_registry 中 horizon=2900；若仅做 smoke test 可暂时改小 max_episode_steps。
 
 env_type: robocasa365

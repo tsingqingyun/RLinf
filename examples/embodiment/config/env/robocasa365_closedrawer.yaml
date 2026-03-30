@@ -1,5 +1,6 @@
 # RoboCasa v1.0.0 ("365") environment config.
-# Source: /root/robocasa  (v1.0.0, requires mujoco==3.3.1, numpy==2.2.5)
+# RoboCasa v1.0 source: default /home/njc/robocasa; override with export ROBOCASA365_PATH=...
+# (v1.0.0 requires mujoco==3.3.1, numpy==2.2.5)
 #
 # Differences from robocasa v0.2.0 config:
 #   env_type: robocasa365
