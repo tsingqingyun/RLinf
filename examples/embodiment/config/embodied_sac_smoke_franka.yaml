@@ -1,0 +1,18 @@
+# ---------------------------------------------------------------------------
+# 本地试跑 SAC（无真机）：继承 realworld_dummy_franka_sac_cnn
+#
+# 启动（在 examples/embodiment 目录）:
+#   export EMBODIED_PATH="/path/to/RLinf/examples/embodiment"
+#   python train_embodied_agent.py --config-name embodied_sac_smoke_franka
+#
+# 需先将 actor/rollout 的 model_path 指到可用权重，例如:
+#   https://huggingface.co/RLinf/RLinf-ResNet10-pretrained
+# 可在本文件里改，或命令行覆盖:
+#   actor.model.model_path=... rollout.model.model_path=...
+# ---------------------------------------------------------------------------
+defaults:
+  - realworld_dummy_franka_sac_cnn
+  - _self_
+
+runner:
+  experiment_name: "embodied_sac_smoke_franka"

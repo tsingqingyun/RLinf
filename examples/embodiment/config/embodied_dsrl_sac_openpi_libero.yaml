@@ -1,0 +1,15 @@
+# ---------------------------------------------------------------------------
+# OpenPI Pi0.5 + DSRL（off-policy SAC 系）：LIBERO 仿真（薄封装）
+# Robocasa 请用: robocasa365_searingmeat_dsrl_sac_openpi_pi05.yaml
+# 启动:
+#   export EMBODIED_PATH="/path/to/RLinf/examples/embodiment"
+#   python train_embodied_agent.py --config-name embodied_dsrl_sac_openpi_libero
+#
+# 需设置 actor/rollout.model_path；并阅读 libero_spatial_dsrl_openpi_pi05 中 openpi.use_dsrl 等项
+# ---------------------------------------------------------------------------
+defaults:
+  - libero_spatial_dsrl_openpi_pi05
+  - _self_
+
+runner:
+  experiment_name: "embodied_dsrl_sac_openpi_libero"

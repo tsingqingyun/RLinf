@@ -1,0 +1,177 @@
+# ---------------------------------------------------------------------------
+# RLPD（SAC + replay + demo_buffer）单机单卡友好版：peg insertion + CNN
+# 入口必须用异步脚本（与官方 rlpd async 一致）:
+#   export EMBODIED_PATH="/path/to/RLinf/examples/embodiment"
+#   cd /path/to/RLinf/examples/embodiment
+#   python train_async.py --config-name embodied_rlpd_peginsertion_async_single_node \
+#     algorithm.demo_buffer.load_path=/你的/demo轨迹目录
+#
+# 多机/真机布局请仍用 realworld_peginsertion_rlpd_cnn_async.yaml
+#
+# 模型权重: actor/rollout.model_path 指向 ResNet10 等（见 HF RLinf-ResNet10-pretrained）
+# ---------------------------------------------------------------------------
+defaults:
+  - env/realworld_peg_insertion@env.train
+  - env/realworld_peg_insertion@env.eval
+  - model/cnn_policy@actor.model
+  - training_backend/fsdp@actor.fsdp_config
+  - override hydra/job_logging: stdout
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+  searchpath:
+    - file://${oc.env:EMBODIED_PATH}/config/
+
+cluster:
+  num_nodes: 1
+  component_placement:
+    actor,env,rollout: all
+
+runner:
+  task_type: embodied
+  logger:
+    log_path: "../results"
+    project_name: rlinf
+    experiment_name: "embodied_rlpd_peginsertion_async_single_node"
+    logger_backends: ["tensorboard"]
+
+  max_epochs: 8000
+  max_steps: -1
+
+  only_eval: False
+  val_check_interval: -1
+  save_interval: -1
+
+  resume_dir: null
+  ckpt_path: null
+
+algorithm:
+  update_epoch: 8
+  group_size: 1
+  agg_q: min
+  actor_agg_q: mean
+  enable_drq: False
+
+  backup_entropy: False
+  critic_subsample_size: 2
+  eval_rollout_epoch: 1
+
+  adv_type: embodied_sac
+  loss_type: embodied_sac
+  loss_agg_func: "token-mean"
+
+  bootstrap_type: standard
+  gamma: 0.96
+  tau: 0.005
+  entropy_tuning:
+    alpha_type: softplus
+    initial_alpha: 0.01
+    target_entropy: -3
+    optim:
+      lr: 3.0e-4
+      lr_scheduler: torch_constant
+      clip_grad: 10.0
+
+  critic_actor_ratio: 4
+  replay_buffer:
+    enable_cache: True
+    cache_size: 200
+    min_buffer_size: 2
+    sample_window_size: 200
+    auto_save: False
+
+  demo_buffer:
+    enable_cache: True
+    cache_size: 200
+    min_buffer_size: 1
+    sample_window_size: 200
+    load_path: "/path/to/demo_data"
+    auto_save: False
+
+  target_update_freq: 1
+
+  sampling_params:
+    do_sample: True
+    temperature_train: 1.0
+    temperature_eval: 0.6
+    top_k: 50
+    top_p: 1.0
+    repetition_penalty: 1.0
+
+  length_params:
+    max_new_token: 7
+    max_length: 1024
+    min_length: 1
+
+env:
+  group_name: "EnvGroup"
+
+  train:
+    ignore_terminations: False
+    total_num_envs: 1
+    override_cfg:
+      is_dummy: False
+      use_dense_reward: False
+      target_ee_pose: TARGET_EE_POSE
+
+  eval:
+    total_num_envs: 1
+
+rollout:
+  group_name: "RolloutGroup"
+  backend: "huggingface"
+  enable_offload: False
+  pipeline_stage_num: 1
+  sync_weight_nccl_max_ctas: 32
+
+  collect_transitions: True
+  collect_prev_infos: False
+
+  model:
+    model_path: "/path/to/model"
+    precision: ${actor.model.precision}
+    num_q_heads: 10
+
+  enable_torch_compile: True
+  enable_cuda_graph: False
+
+actor:
+  group_name: "ActorGroup"
+  training_backend: "fsdp"
+
+  micro_batch_size: 256
+  global_batch_size: 256
+  seed: 1234
+  enable_offload: False
+
+  model:
+    model_path: "/path/to/model"
+    state_dim: 19
+    action_dim: 6
+    num_q_heads: 10
+
+  optim:
+    clip_grad: 10.0
+    lr: 3e-4
+    lr_scheduler: torch_constant
+
+  critic_optim:
+    clip_grad: 10.0
+    lr: 3e-4
+    lr_scheduler: torch_constant
+
+  fsdp_config:
+    strategy: "fsdp"
+    sharding_strategy: "no_shard"
+    mixed_precision:
+      param_dtype: ${actor.model.precision}
+      reduce_dtype: ${actor.model.precision}
+      buffer_dtype: ${actor.model.precision}
+
+reward:
+  use_reward_model: False
+
+critic:
+  use_critic_model: False
